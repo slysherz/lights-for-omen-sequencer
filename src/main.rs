@@ -3,6 +3,9 @@ use rusb::{
 };
 use std::{collections::HashMap, time::Duration};
 
+const LFOS_NAME: &str = env!("CARGO_PKG_NAME");
+const LFOS_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[derive(Debug)]
 struct Endpoint {
     config: u8,
@@ -185,130 +188,8 @@ fn get_key_groups() -> HashMap<String, Vec<String>> {
     return groups;
 }
 
-fn color_component(color: u32, ofset: u8) -> u8 {
-    (color >> ofset & 0xff) as u8
-}
-
-#[allow(dead_code)]
-fn get_color(keys: &Vec<&str>, i: usize, ofset: u8) -> u8 {
-    if i < keys.len() {
-        return color_component(0xff0000, ofset);
-    } else if i == keys.len() {
-        return color_component(0xffffff, ofset);
-    }
-
-    return color_component(0x000000, ofset);
-}
-
-fn try_parse_overrides(
-    groups: &HashMap<String, Vec<String>>,
-    args: &Vec<String>
-) -> std::result::Result<HashMap<String, u32>, Box<dyn std::error::Error>> {
-    let mut overrides = HashMap::<String, u32>::new();
-
-    for arg in args {
-        if arg == "--help" {
-            return Err("".into());
-        }
-    }
-
-    for i in (1..args.len()).step_by(2) {
-        let key = &args[i];
-        let value = u32::from_str_radix(args[i + 1].as_str(), 16)?;
-        if groups.contains_key(key) {
-            match groups.get(key) {
-                Some(values) => {
-                    for val in values {
-                        overrides.insert(val.clone(), value);
-                    }
-                }
-                None => (),
-            }
-        } else {
-            overrides.insert(key.clone(), value);
-        }
-    }
-
-    return Ok(overrides);
-}
-
-fn parse_overrides(keys: &Vec<&str>) -> HashMap<String, u32> {
-    let groups = get_key_groups();
-    let args: Vec<String> = std::env::args().collect();
-    match try_parse_overrides(&groups, &args) {
-        Ok(o) => o,
-        Err(error) => {
-            println!("{}", error.to_string());
-            println!("Usage: {0} [key|group] [color] ...\nexample: {0} pkeys ff0000 home 00ff00", args[0]);
-
-            println!("Groups:");
-            for (key, value) in groups {
-                println!("    {}: {}", key, value.join(", "));
-            }
-
-            let mut sorted_keys = keys.clone();
-            sorted_keys.sort();
-            println!("Keys:");
-            for key in sorted_keys {
-                if key != "????" {
-                    println!("    {}", key);
-                }
-            }
-
-            std::process::exit(-1);
-        }
-    }
-}
-
-fn build_table() -> Vec<Vec<u8>> {
-    let lines = vec![
-        Line {
-            header: HEADER1,
-            body: BODY0,
-            ofset: 16,
-        },
-        Line {
-            header: HEADER2,
-            body: BODY1,
-            ofset: 16,
-        },
-        Line {
-            header: HEADER3,
-            body: BODY2,
-            ofset: 16,
-        },
-        Line {
-            header: HEADER4,
-            body: BODY0,
-            ofset: 8,
-        },
-        Line {
-            header: HEADER5,
-            body: BODY1,
-            ofset: 8,
-        },
-        Line {
-            header: HEADER6,
-            body: BODY2,
-            ofset: 8,
-        },
-        Line {
-            header: HEADER7,
-            body: BODY0,
-            ofset: 0,
-        },
-        Line {
-            header: HEADER8,
-            body: BODY1,
-            ofset: 0,
-        },
-        Line {
-            header: HEADER9,
-            body: BODY2,
-            ofset: 0,
-        },
-    ];
-    let keys = vec![
+fn get_keys() -> Vec<&'static str> {
+    return vec![
         "esc",
         "\\",
         "tab",
@@ -452,8 +333,151 @@ fn build_table() -> Vec<Vec<u8>> {
         "numpadenter",
         "numpad.",
     ];
-    let overrides = parse_overrides(&keys);
+}
 
+fn color_component(color: u32, ofset: u8) -> u8 {
+    (color >> ofset & 0xff) as u8
+}
+
+#[allow(dead_code)]
+fn get_color(keys: &Vec<&str>, i: usize, ofset: u8) -> u8 {
+    if i < keys.len() {
+        return color_component(0xff0000, ofset);
+    } else if i == keys.len() {
+        return color_component(0xffffff, ofset);
+    }
+
+    return color_component(0x000000, ofset);
+}
+
+struct LFOS {
+    groups: HashMap<String, Vec<String>>,
+    keys: Vec<&'static str>
+}
+
+fn get_lfos() -> LFOS {
+    let keys = get_keys();
+    let groups = get_key_groups();
+    return LFOS {
+        keys,
+        groups
+    };
+}
+
+fn show_usage(lfos: &LFOS) {
+    println!("Usage: {0} [key|group] [color] ...\nexample: {0} pkeys ff0000 home 00ff00", LFOS_NAME);
+
+    println!("Groups:\n\tall: all keys");
+    for (key, value) in &lfos.groups {
+        println!("\t{}: {}", key, value.join(", "));
+    }
+
+    let mut sorted_keys = lfos.keys.clone();
+    sorted_keys.sort();
+    println!("Keys:");
+    for key in sorted_keys {
+        if key != "????" {
+            println!("\t{}", key);
+        }
+    }
+
+    std::process::exit(0);
+}
+
+fn show_version() {
+    println!("{} {}", LFOS_NAME, LFOS_VERSION);
+    std::process::exit(0);
+}
+
+fn try_parse_cmd(
+    lfos: &LFOS,
+    args: &Vec<String>
+) -> std::result::Result<HashMap<String, u32>, Box<dyn std::error::Error>> {
+    let mut overrides = HashMap::<String, u32>::new();
+
+    for arg in args {
+        if arg == "--help" {
+            show_usage(lfos);
+        }
+        if arg == "--version" {
+            show_version();
+        }
+    }
+
+    if args.len() % 2 != 1 {
+        return Err(
+            format!("Each key/group must be given a color, like so:\n\t{} key1 color1 key2 color2...", LFOS_NAME)
+            .into()
+        );
+    }
+    for i in (1..args.len()).step_by(2) {
+        let key = &args[i];
+        let value = u32::from_str_radix(args[i + 1].as_str(), 16)?;
+        if lfos.groups.contains_key(key) {
+            match lfos.groups.get(key) {
+                Some(values) => {
+                    for val in values {
+                        overrides.insert(val.clone(), value);
+                    }
+                }
+                None => (),
+            }
+        } else {
+            overrides.insert(key.clone(), value);
+        }
+    }
+
+    return Ok(overrides);
+}
+
+fn build_table(lfos: LFOS, overrides: HashMap<String, u32>) -> Vec<Vec<u8>> {
+    let lines = vec![
+        Line {
+            header: HEADER1,
+            body: BODY0,
+            ofset: 16,
+        },
+        Line {
+            header: HEADER2,
+            body: BODY1,
+            ofset: 16,
+        },
+        Line {
+            header: HEADER3,
+            body: BODY2,
+            ofset: 16,
+        },
+        Line {
+            header: HEADER4,
+            body: BODY0,
+            ofset: 8,
+        },
+        Line {
+            header: HEADER5,
+            body: BODY1,
+            ofset: 8,
+        },
+        Line {
+            header: HEADER6,
+            body: BODY2,
+            ofset: 8,
+        },
+        Line {
+            header: HEADER7,
+            body: BODY0,
+            ofset: 0,
+        },
+        Line {
+            header: HEADER8,
+            body: BODY1,
+            ofset: 0,
+        },
+        Line {
+            header: HEADER9,
+            body: BODY2,
+            ofset: 0,
+        },
+    ];    
     let mut result = Vec::<Vec<u8>>::new();
     result.push(Vec::from(decode_hex(HEADER0)));
 
@@ -465,9 +489,9 @@ fn build_table() -> Vec<Vec<u8>> {
                 line.push(0);
             } else {
                 let j = (l % 3) * 60 + i / 2;
-                let color = match overrides.get(keys[j]) {
+                let color = match overrides.get(lfos.keys[j]) {
                     Some(value) => value,
-                    None => overrides.get("base").unwrap_or(&0xffffff),
+                    None => overrides.get("all").unwrap_or(&0xffffff),
                 };
                 line.push(color_component(*color, entry.ofset));
             }
@@ -480,16 +504,25 @@ fn build_table() -> Vec<Vec<u8>> {
 }
 
 fn main() {
-    let table = build_table();
-    let mut context = rusb::Context::new().unwrap();
-    match open_device(&mut context, 0x03f0, 0x1f41) {
-        Some((mut device, device_desc, mut handle)) => {
-            for line in table {
-                let ep = find_writable_endpoint(&mut device, &device_desc, TransferType::Interrupt)
-                    .unwrap();
-                write_endpoint(&mut handle, ep, TransferType::Interrupt, &line);
-            }
+    let lfos = get_lfos();
+    let args: Vec<String> = std::env::args().collect();
+    match try_parse_cmd(&lfos, &args) {
+        Ok(overrides) => {
+            let table = build_table(lfos, overrides);
+            let mut context = rusb::Context::new().unwrap();
+            match open_device(&mut context, 0x03f0, 0x1f41) {
+                Some((mut device, device_desc, mut handle)) => {
+                    for line in table {
+                        let ep = find_writable_endpoint(&mut device, &device_desc, TransferType::Interrupt)
+                            .unwrap();
+                        write_endpoint(&mut handle, ep, TransferType::Interrupt, &line);
+                    }
+                }
+                None => (),
+            };
+        },
+        Err(error) => {
+            println!("{}", error.to_string());
         }
-        None => (),
-    };
+    }
 }

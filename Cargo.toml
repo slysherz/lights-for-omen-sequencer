@@ -1,5 +1,5 @@
 [package]
-name = "omen-sequencer"
+name = "lights-for-omen-sequencer"
 version = "0.1.0"
 edition = "2021"
 
