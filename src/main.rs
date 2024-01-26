@@ -185,6 +185,11 @@ fn add_group(groups: &mut HashMap<String, Vec<String>>, name: &str, values: Vec<
 fn get_key_groups() -> HashMap<String, Vec<String>> {
     let mut groups: HashMap<String, Vec<String>> = HashMap::new();
     add_group(&mut groups, "pkeys", vec!["p1", "p2", "p3", "p4", "p5"]);
+    add_group(&mut groups, "fkeys", vec!["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12"]);
+    add_group(&mut groups, "media", vec!["play", "stop", "playlast", "playnext"]);
+    add_group(&mut groups, "system", vec!["prtscrn", "sclock", "pause", "insert", "home", "insert", "pgup", "delete", "end", "pgdown"]);
+    add_group(&mut groups, "arrows", vec!["leftarrow", "rightarrow", "uparrow", "downarrow"]);
+    add_group(&mut groups, "numpad", vec!["numlock", "numpad/", "numpad*", "numpad-", "numpad7", "numpad8", "numpad9", "numpad+", "numpad4", "numpad5", "numpad6", "numpad1", "numpad2", "numpad3", "numpad0", "numpad.", "numpadenter"]);
 
     return groups;
 }
@@ -326,7 +331,7 @@ fn get_keys() -> Vec<&'static str> {
         "m",
         "fn",
         "~",
-        "arrowup",
+        "uparrow",
         "playnext",
         "numpad5",
         "????",
