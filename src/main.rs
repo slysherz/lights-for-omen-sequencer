@@ -2,6 +2,7 @@ use rusb::{
     Device, DeviceDescriptor, DeviceHandle, Direction, Result, TransferType, UsbContext,
 };
 use std::{collections::HashMap, time::Duration};
+use log::trace;
 
 const LFOS_NAME: &str = env!("CARGO_PKG_NAME");
 const LFOS_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -52,21 +53,21 @@ fn find_writable_endpoint<T: UsbContext>(
             Err(_) => continue,
         };
 
-        for (_interface_number, interface) in config_desc.interfaces().enumerate() {
+        for (interface_number, interface) in config_desc.interfaces().enumerate() {
             for interface_desc in interface.descriptors() {
-                for (_endpoint_number, endpoint_desc) in
+                for (endpoint_number, endpoint_desc) in
                     interface_desc.endpoint_descriptors().enumerate()
                 {
                     if endpoint_desc.direction() == Direction::Out
                         && endpoint_desc.transfer_type() == transfer_type
                     {
-                        // println!(
-                        //     "Found writable endpoint {}:{} at address {} for device {}",
-                        //     interface_number,
-                        //     endpoint_number,
-                        //     endpoint_desc.address(),
-                        //     device.address()
-                        // );
+                        trace!(
+                            "Found writable endpoint {}:{} at address {} for device {}",
+                            interface_number,
+                            endpoint_number,
+                            endpoint_desc.address(),
+                            device.address()
+                        );
                         return Some(Endpoint {
                             config: config_desc.number(),
                             iface: interface_desc.interface_number(),
@@ -88,7 +89,7 @@ fn write_endpoint<T: UsbContext>(
     transfer_type: TransferType,
     data: &[u8],
 ) {
-    // println!("Writing to endpoint: {:?}", endpoint);
+    trace!("Writing to endpoint: {:?}", endpoint);
 
     let has_kernel_driver = match handle.kernel_driver_active(endpoint.iface) {
         Ok(true) => {
@@ -98,18 +99,18 @@ fn write_endpoint<T: UsbContext>(
         _ => false,
     };
 
-    // println!(" - kernel driver? {}", has_kernel_driver);
+    trace!(" - kernel driver? {}", has_kernel_driver);
 
     match configure_endpoint(handle, &endpoint) {
         Ok(_) => {
             let timeout = Duration::from_secs(1);
-            // println!("Handle state {:?}", handle);
+            trace!("Handle state {:?}", handle);
 
             match transfer_type {
                 TransferType::Interrupt => {
                     match handle.write_interrupt(endpoint.address, data, timeout) {
-                        Ok(_len) => {
-                            // println!(" - wrote: {} bytes", len);
+                        Ok(len) => {
+                            trace!(" - wrote: {} bytes", len);
                         }
                         Err(err) => {
                             println!("could not write to endpoint: {}", err);
@@ -118,7 +119,7 @@ fn write_endpoint<T: UsbContext>(
                 }
                 TransferType::Bulk => match handle.write_bulk(endpoint.address, data, timeout) {
                     Ok(len) => {
-                        println!(" - wrote {:?} bytes", len);
+                        trace!(" - wrote {:?} bytes", len);
                     }
                     Err(err) => println!("could not write to endpoint: {}", err),
                 },
@@ -137,10 +138,10 @@ fn configure_endpoint<T: UsbContext>(
     handle: &mut DeviceHandle<T>,
     endpoint: &Endpoint,
 ) -> Result<()> {
-    // println!(
-    //     "Configuring for sending, and claiming the interface. {:?}",
-    //     endpoint
-    // );
+    trace!(
+        "Configuring for sending, and claiming the interface. {:?}",
+        endpoint
+    );
     handle.set_active_configuration(endpoint.config)?;
     handle.claim_interface(endpoint.iface)?;
     handle.set_alternate_setting(endpoint.iface, endpoint.setting)?;
