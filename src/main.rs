@@ -402,10 +402,10 @@ fn try_parse_cmd(
     let mut overrides = HashMap::<String, u32>::new();
 
     for arg in args {
-        if arg == "--help" {
+        if arg == "-h" || arg == "--help" {
             show_usage(lfos);
         }
-        if arg == "--version" {
+        if arg == "-v" || arg == "--version" {
             show_version();
         }
     }
