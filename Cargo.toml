@@ -7,4 +7,4 @@ edition = "2021"
 
 [dependencies]
 log = "0.4.20"
-rusb = "0.9.3"
+rusb = { version = "0.9.3", features = ["vendored"] }

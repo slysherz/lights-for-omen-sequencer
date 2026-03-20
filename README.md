@@ -8,6 +8,8 @@ This program allows you to change the lights in your Omen Sequencer without Omen
 lights-for-omen-sequencer.exe all FFFA710F pkeys FFBF0FFA home FFBF0FFA
 ```
 
+Also works on Linux.
+
 ![Alt text](<images/example.jpg>)
 
 The colors stay until:

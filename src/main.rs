@@ -6,12 +6,13 @@ use log::trace;
 
 const LFOS_NAME: &str = env!("CARGO_PKG_NAME");
 const LFOS_VERSION: &str = env!("CARGO_PKG_VERSION");
+const OMEN_SEQUENCER_IFACE: u8 = 2;
+const OMEN_SEQUENCER_ENDPOINT_OUT: u8 = 0x04;
 
 #[derive(Debug)]
 struct Endpoint {
     config: u8,
     iface: u8,
-    setting: u8,
     address: u8,
 }
 
@@ -19,11 +20,14 @@ fn open_device<T: UsbContext>(
     context: &mut T,
     vid: u16,
     pid: u16,
-) -> Option<(Device<T>, DeviceDescriptor, DeviceHandle<T>)> {
+) -> std::result::Result<(Device<T>, DeviceDescriptor, DeviceHandle<T>), String> {
     let devices = match context.devices() {
         Ok(d) => d,
-        Err(_) => return None,
+        Err(err) => return Err(format!("Could not enumerate USB devices: {}", err)),
     };
+
+    let mut found_matching_device = false;
+    let mut open_error: Option<String> = None;
 
     for device in devices.iter() {
         let device_desc = match device.device_descriptor() {
@@ -32,14 +36,31 @@ fn open_device<T: UsbContext>(
         };
 
         if device_desc.vendor_id() == vid && device_desc.product_id() == pid {
+            found_matching_device = true;
             match device.open() {
-                Ok(handle) => return Some((device, device_desc, handle)),
-                Err(_) => continue,
+                Ok(handle) => return Ok((device, device_desc, handle)),
+                Err(err) => {
+                    open_error = Some(err.to_string());
+                    continue;
+                }
             }
         }
     }
 
-    None
+    if found_matching_device {
+        Err(format!(
+            "Device {:04x}:{:04x} was found but could not be opened ({}). \
+Try running with sudo or install udev rules and relogin.",
+            vid,
+            pid,
+            open_error.unwrap_or_else(|| "unknown USB access error".to_string())
+        ))
+    } else {
+        Err(format!(
+            "Device {:04x}:{:04x} not found. Is the keyboard connected?",
+            vid, pid
+        ))
+    }
 }
 
 fn find_writable_endpoint<T: UsbContext>(
@@ -61,19 +82,24 @@ fn find_writable_endpoint<T: UsbContext>(
                     if endpoint_desc.direction() == Direction::Out
                         && endpoint_desc.transfer_type() == transfer_type
                     {
-                        trace!(
-                            "Found writable endpoint {}:{} at address {} for device {}",
-                            interface_number,
-                            endpoint_number,
-                            endpoint_desc.address(),
-                            device.address()
-                        );
-                        return Some(Endpoint {
-                            config: config_desc.number(),
-                            iface: interface_desc.interface_number(),
-                            setting: interface_desc.setting_number(),
-                            address: endpoint_desc.address(),
-                        });
+                        let iface_number = interface_desc.interface_number();
+                        let ep_address = endpoint_desc.address();
+                        if iface_number == OMEN_SEQUENCER_IFACE
+                            && ep_address == OMEN_SEQUENCER_ENDPOINT_OUT
+                        {
+                            trace!(
+                                "Found OMEN Sequencer endpoint {}:{} at address {} for device {}",
+                                interface_number,
+                                endpoint_number,
+                                ep_address,
+                                device.address()
+                            );
+                            return Some(Endpoint {
+                                config: config_desc.number(),
+                                iface: iface_number,
+                                address: ep_address,
+                            });
+                        }
                     }
                 }
             }
@@ -85,52 +111,25 @@ fn find_writable_endpoint<T: UsbContext>(
 
 fn write_endpoint<T: UsbContext>(
     handle: &mut DeviceHandle<T>,
-    endpoint: Endpoint,
+    endpoint: &Endpoint,
     transfer_type: TransferType,
     data: &[u8],
 ) {
+    let timeout = Duration::from_secs(1);
     trace!("Writing to endpoint: {:?}", endpoint);
 
-    let has_kernel_driver = match handle.kernel_driver_active(endpoint.iface) {
-        Ok(true) => {
-            handle.detach_kernel_driver(endpoint.iface).ok();
-            true
-        }
-        _ => false,
-    };
-
-    trace!(" - kernel driver? {}", has_kernel_driver);
-
-    match configure_endpoint(handle, &endpoint) {
-        Ok(_) => {
-            let timeout = Duration::from_secs(1);
-            trace!("Handle state {:?}", handle);
-
-            match transfer_type {
-                TransferType::Interrupt => {
-                    match handle.write_interrupt(endpoint.address, data, timeout) {
-                        Ok(len) => {
-                            trace!(" - wrote: {} bytes", len);
-                        }
-                        Err(err) => {
-                            println!("could not write to endpoint: {}", err);
-                        }
-                    }
-                }
-                TransferType::Bulk => match handle.write_bulk(endpoint.address, data, timeout) {
-                    Ok(len) => {
-                        trace!(" - wrote {:?} bytes", len);
-                    }
-                    Err(err) => println!("could not write to endpoint: {}", err),
-                },
-                _ => (),
+    match transfer_type {
+        TransferType::Interrupt => {
+            match handle.write_interrupt(endpoint.address, data, timeout) {
+                Ok(len) => trace!("wrote {} bytes", len),
+                Err(err) => eprintln!("could not write to endpoint: {}", err),
             }
         }
-        Err(err) => println!("could not configure endpoint: {}", err),
-    }
-
-    if has_kernel_driver {
-        handle.attach_kernel_driver(endpoint.iface).ok();
+        TransferType::Bulk => match handle.write_bulk(endpoint.address, data, timeout) {
+            Ok(len) => trace!("wrote {} bytes", len),
+            Err(err) => eprintln!("could not write to endpoint: {}", err),
+        },
+        _ => (),
     }
 }
 
@@ -142,9 +141,14 @@ fn configure_endpoint<T: UsbContext>(
         "Configuring for sending, and claiming the interface. {:?}",
         endpoint
     );
-    handle.set_active_configuration(endpoint.config)?;
+    // Only switch configuration when necessary. On Linux, calling
+    // set_active_configuration while other interfaces are held by usbhid
+    // returns EBUSY even as root, so we skip it when already correct.
+    let current = handle.active_configuration()?;
+    if current != endpoint.config {
+        handle.set_active_configuration(endpoint.config)?;
+    }
     handle.claim_interface(endpoint.iface)?;
-    handle.set_alternate_setting(endpoint.iface, endpoint.setting)?;
     Ok(())
 }
 
@@ -517,14 +521,42 @@ fn main() {
             let table = build_table(lfos, overrides);
             let mut context = rusb::Context::new().unwrap();
             match open_device(&mut context, 0x03f0, 0x1f41) {
-                Some((mut device, device_desc, mut handle)) => {
-                    for line in table {
-                        let ep = find_writable_endpoint(&mut device, &device_desc, TransferType::Interrupt)
-                            .unwrap();
-                        write_endpoint(&mut handle, ep, TransferType::Interrupt, &line);
+                Ok((mut device, device_desc, mut handle)) => {
+                    // Let libusb handle temporary kernel-driver detach/reattach
+                    // around claim/release. This is safer than manual detach on
+                    // some Linux systems and helps avoid input instability.
+                    handle.set_auto_detach_kernel_driver(true).ok();
+                    match find_writable_endpoint(&mut device, &device_desc, TransferType::Interrupt) {
+                        Some(ep) => {
+                            trace!("Using endpoint address 0x{:02x}, iface {}", ep.address, ep.iface);
+                            let mut claimed = false;
+                            match configure_endpoint(&mut handle, &ep) {
+                                Ok(_) => {
+                                    claimed = true;
+                                    for line in table.iter() {
+                                        write_endpoint(&mut handle, &ep, TransferType::Interrupt, line);
+                                    }
+                                }
+                                Err(err) => println!("could not configure endpoint: {}", err),
+                            }
+
+                            if claimed {
+                                // With auto-detach enabled, release triggers reattach
+                                // managed by libusb.
+                                if let Err(err) = handle.release_interface(ep.iface) {
+                                    eprintln!("could not release interface {}: {}", ep.iface, err);
+                                }
+                            }
+                        }
+                        None => eprintln!(
+                            "No OMEN Sequencer writable endpoint found (expected iface 2, endpoint 0x04)."
+                        ),
                     }
                 }
-                None => (),
+                Err(err) => {
+                    eprintln!("{}", err);
+                    std::process::exit(1);
+                }
             };
         },
         Err(error) => {
