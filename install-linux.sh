@@ -57,10 +57,14 @@ sudo tee "$LFOS_SERVICE_PATH" >/dev/null <<EOF
 [Unit]
 Description=Apply OMEN Sequencer keyboard colors
 After=multi-user.target
+StartLimitIntervalSec=20
+StartLimitBurst=5
 
 [Service]
 Type=oneshot
 ExecStart=$LFOS_BIN_DST $LFOS_COLOR_ARGS
+Restart=on-failure
+RestartSec=2
 
 [Install]
 WantedBy=multi-user.target
@@ -71,7 +75,7 @@ sudo tee "$LFOS_SLEEP_HOOK_PATH" >/dev/null <<EOF
 #!/bin/sh
 case "\$1/\$2" in
   post/*)
-    $LFOS_BIN_DST $LFOS_COLOR_ARGS
+    systemctl restart --no-block lights-for-omen-sequencer.service
     ;;
 esac
 EOF

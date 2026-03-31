@@ -17,6 +17,8 @@ The colors stay until:
 - the pc goes to sleep
 - something else changes them
 
+On Linux, running [install-linux.sh](install-linux.sh) installs a boot service and a resume hook that reapplies the configured colors after wake.
+
 ## Advanced
 
 Here are the names for all the keys and groups:
